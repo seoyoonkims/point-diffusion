@@ -39,8 +39,8 @@ class MLP(nn.Module):
 
     def forward(self, x):
         x = F.gelu(self.fc1(x))
-        x = F.gelu(self.fc2(x))
-        x = F.gelu(self.fc3(x))
+        x = F.gelu(self.fc2(x) + x)
+        x = F.gelu(self.fc3(x) + x)
         x = self.output_layer(x)
         return x
 
@@ -188,10 +188,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Point diffusion model")
     parser.add_argument("--dataset", type=str, default="dino", help="Dataset to use")
     parser.add_argument("--n", type=int, default=100, help="Number of samples")
-    parser.add_argument("--emb_dim", type=int, default=64, help="Embedding dimension")
+    parser.add_argument("--emb_dim", type=int, default=128, help="Embedding dimension")
     parser.add_argument("--hidden_dim", type=int, default=128, help="Hidden dimension")
     parser.add_argument("--num_timesteps", type=int, default=50, help="Number of time steps")
-    parser.add_argument("--num_iteration", type=int, default=300, help="Number of iterations")
+    parser.add_argument("--num_iteration", type=int, default=500, help="Number of iterations")
     parser.add_argument("--train_batch_size", type=int, default=1000, help="Batch size for training")
     parser.add_argument("--test_batch_size", type=int, default=1000, help="Batch size for testing")
     args = parser.parse_args()
