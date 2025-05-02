@@ -29,13 +29,13 @@ def positional_embedding(x, emb_dim):
 
 
 class MLP(nn.Module):
-    def __init__(self, input_dim, output_dim):
+    def __init__(self, input_dim, hidden_dim, output_dim):
         super().__init__()
         self.input_dim = input_dim
-        self.fc1 = nn.Linear(input_dim, 128)
-        self.fc2 = nn.Linear(128, 128)          # hidden dimension
-        self.fc3 = nn.Linear(128, 128)
-        self.output_layer = nn.Linear(128, output_dim)
+        self.fc1 = nn.Linear(input_dim, hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
+        self.fc3 = nn.Linear(hidden_dim, hidden_dim)
+        self.output_layer = nn.Linear(hidden_dim, output_dim)
 
     def forward(self, x):
         x = F.gelu(self.fc1(x))
@@ -46,11 +46,11 @@ class MLP(nn.Module):
 
 
 class PointDiffusionModel(nn.Module):
-    def __init__(self, emb_dim):
+    def __init__(self, emb_dim, hidden_dim):
         super().__init__()
         self.input_dim = 3 * emb_dim
         self.emb_dim = emb_dim
-        self.mlp = MLP(self.input_dim, output_dim=2) # output_dim=2 for 2D points
+        self.mlp = MLP(self.input_dim, hidden_dim, output_dim=2) # output_dim=2 for 2D points
 
     def forward(self, x, t):
         # positional embedding
@@ -116,9 +116,9 @@ class NoiseScheduler(nn.Module):
 def main(args):
     # Prepare the dataset
     dataset = datasets.get_dataset(args.dataset)
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=1000, shuffle=True)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=args.train_batch_size, shuffle=True)
 
-    model = PointDiffusionModel(emb_dim=args.emb_dim)
+    model = PointDiffusionModel(emb_dim=args.emb_dim, hidden_dim=args.hidden_dim)
     noise_scheduler = NoiseScheduler(args.num_timesteps)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
@@ -142,6 +142,7 @@ def main(args):
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             loss.backward()
 
+            # optimizer
             optimizer.step()
             optimizer.zero_grad()
         
@@ -155,7 +156,7 @@ def main(args):
         # Evaluation
         model.eval()
         with torch.no_grad():
-            z = torch.randn(1000, 2).to(x.device)
+            z = torch.randn(args.test_batch_size, 2).to(x.device)
             for t_val in range(args.num_timesteps - 1, -1, -1):
                 t_batch = torch.full((z.size(0),), t_val, dtype=torch.long, device=z.device)
                 g_z = model(z, t_batch)
@@ -165,13 +166,12 @@ def main(args):
         if epoch % 10 == 0 or epoch == args.num_timesteps - 1:
             sample_np = z.numpy()
             plt.figure(figsize=(6, 6))
-            plt.scatter(sample_np[:, 0], sample_np[:, 1], s=10, alpha=0.6)
+            plt.scatter(sample_np[:, 0], sample_np[:, 1], s=10, alpha=1.0)
             plt.title(f"Sampled Points at Epoch {epoch}")
             plt.xlabel("x")
             plt.ylabel("y")
             plt.xlim(-6, 6)
             plt.ylim(-6, 6)
-            # plt.axis("equal")
             plt.grid(True)
             os.makedirs("vis", exist_ok=True)
             plt.savefig(f"vis/sample_epoch_{epoch:04d}.png")
@@ -188,9 +188,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Point diffusion model")
     parser.add_argument("--dataset", type=str, default="dino", help="Dataset to use")
     parser.add_argument("--n", type=int, default=100, help="Number of samples")
-    parser.add_argument("--emb_dim", type=int, default=128, help="Embedding dimension")
+    parser.add_argument("--emb_dim", type=int, default=64, help="Embedding dimension")
+    parser.add_argument("--hidden_dim", type=int, default=128, help="Hidden dimension")
     parser.add_argument("--num_timesteps", type=int, default=50, help="Number of time steps")
     parser.add_argument("--num_iteration", type=int, default=300, help="Number of iterations")
+    parser.add_argument("--train_batch_size", type=int, default=1000, help="Batch size for training")
+    parser.add_argument("--test_batch_size", type=int, default=1000, help="Batch size for testing")
     args = parser.parse_args()
 
     main(args)
