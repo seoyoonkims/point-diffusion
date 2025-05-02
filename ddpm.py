@@ -21,6 +21,8 @@ def positional_embedding(x, emb_dim):
                             "odd dim (got dim={:d})".format(emb_dim))
     pe = torch.zeros(x.shape[0], emb_dim)
     div_term = torch.exp(torch.arange(0, emb_dim, 2, dtype=torch.float) * -(math.log(10000.0) / emb_dim))
+    if x.dim() == 1:
+        x = x.unsqueeze(1) # (number of points, 1)
     pe[:, 0::2] = torch.sin(x * div_term)
     pe[:, 1::2] = torch.cos(x * div_term)
     return pe
@@ -31,13 +33,15 @@ class MLP(nn.Module):
         super().__init__()
         self.input_dim = input_dim
         self.fc1 = nn.Linear(input_dim, 128)
-        self.fc2 = nn.Linear(128, 64)
-        self.fc3 = nn.Linear(64, output_dim)
+        self.fc2 = nn.Linear(128, 128)          # hidden dimension
+        self.fc3 = nn.Linear(128, 128)
+        self.output_layer = nn.Linear(128, output_dim)
 
     def forward(self, x):
         x = F.gelu(self.fc1(x))
         x = F.gelu(self.fc2(x))
-        x = self.fc3(x)
+        x = F.gelu(self.fc3(x))
+        x = self.output_layer(x)
         return x
 
 
@@ -59,7 +63,6 @@ class PointDiffusionModel(nn.Module):
 class beta_scheduler(nn.Module):
     def __init__(self, num_timesteps):
         super().__init__()
-        self.num_timesteps = num_timesteps
         self.betas = torch.linspace(0.0001, 0.02, num_timesteps)
 
 
@@ -72,35 +75,27 @@ class NoiseScheduler(nn.Module):
         self.alphas_cumprod = torch.cumprod(self.alphas, dim=0)
     
     def get_alpha_t(self, t):
-        return self.alphas_cumprod.gather(0, t)      # gather: 위치마다 다른 인덱싱
+        return self.alphas.gather(0, t) # gather: different indexing for each element
     
     def forward(self, x, t, noise):
         alpha_t = self.get_alpha_t(t).unsqueeze(1)
         return x * torch.sqrt(alpha_t) + noise * torch.sqrt(1 - alpha_t)
     
-    # def get_sigma(self, t):
-    #     if t > 0:
-    #         print(t)
-    #         return torch.sqrt(self.betas[t] * (1 - self.alphas_cumprod[t-1]) / (1 - self.alphas_cumprod[t]))
-    #     else:
-    #         return 0
-
     def get_sigma(self, t):
         """
         t: Tensor of shape (batch_size,) with values in [0, num_timesteps)
         Returns: Tensor of shape (batch_size,)
         """
-        # Create a mask for valid t > 0 (since t=0 would index -1)
         mask = t > 0
         t_safe = t.clone()
-        t_safe[~mask] = 1  # Avoid indexing -1 for t=0
+        t_safe[~mask] = 1
 
-        beta_t = self.betas[t_safe]  # (batch_size,)
-        alpha_cumprod_t = self.alphas_cumprod[t_safe]
-        alpha_cumprod_prev = self.alphas_cumprod[t_safe - 1]
+        beta_t = self.betas[t_safe]
+        alphas_cumprod_t = self.alphas_cumprod[t_safe]
+        alphas_cumprod_t_prev = self.alphas_cumprod[t_safe - 1]
 
         sigma = torch.sqrt(
-            beta_t * (1 - alpha_cumprod_prev) / (1 - alpha_cumprod_t)
+            beta_t * (1 - alphas_cumprod_t_prev) / (1 - alphas_cumprod_t)
         )
 
         sigma[~mask] = 0.0  # for t == 0, sigma = 0
@@ -110,8 +105,7 @@ class NoiseScheduler(nn.Module):
     def step(self, z, t, g_z):
         alpha_t = self.alphas[t].unsqueeze(1)
         beta_t = self.betas[t].unsqueeze(1)
-        alpha_cumprod_t = self.alphas_cumprod[t].unsqueeze(1)
-        z_prev_pred = z * torch.sqrt(1.0 / alpha_t) - beta_t / (torch.sqrt(alpha_t) * torch.sqrt(1 - alpha_cumprod_t)) * g_z
+        z_prev_pred = z * torch.sqrt(1.0 / 1 - beta_t) - beta_t / (torch.sqrt(1 - alpha_t) * torch.sqrt(1 - beta_t)) * g_z
 
         noise = torch.randn_like(z)
         sigma_t = self.get_sigma(t).unsqueeze(1)
@@ -135,7 +129,7 @@ def main(args):
         total_loss = 0        
         for i, data in enumerate(dataloader):
             # raw data
-            x = data[0]
+            x = data[0] # (batch_size, 2)
             t = torch.randint(0, args.num_timesteps, (x.size(0),), device=x.device)
             
             # add nosie
@@ -161,7 +155,7 @@ def main(args):
         # Evaluation
         model.eval()
         with torch.no_grad():
-            z = torch.randn_like(x)
+            z = torch.randn(1000, 2).to(x.device)
             for t_val in range(args.num_timesteps - 1, -1, -1):
                 t_batch = torch.full((z.size(0),), t_val, dtype=torch.long, device=z.device)
                 g_z = model(z, t_batch)
@@ -171,11 +165,13 @@ def main(args):
         if epoch % 10 == 0 or epoch == args.num_timesteps - 1:
             sample_np = z.numpy()
             plt.figure(figsize=(6, 6))
-            plt.scatter(sample_np[:, 0], sample_np[:, 1], s=10, alpha=0.6)
+            plt.scatter(sample_np[:, 0], sample_np[:, 1], s=10, alpha=1.0)
             plt.title(f"Sampled Points at Epoch {epoch}")
             plt.xlabel("x")
             plt.ylabel("y")
-            plt.axis("equal")
+            plt.xlim(-6, 6)
+            plt.ylim(-6, 6)
+            # plt.axis("equal")
             plt.grid(True)
             os.makedirs("vis", exist_ok=True)
             plt.savefig(f"vis/sample_epoch_{epoch:04d}.png")
