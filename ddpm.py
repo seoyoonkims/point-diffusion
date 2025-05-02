@@ -116,7 +116,7 @@ class NoiseScheduler(nn.Module):
 def main(args):
     # Prepare the dataset
     dataset = datasets.get_dataset(args.dataset)
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=64, shuffle=True)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=1000, shuffle=True)
 
     model = PointDiffusionModel(emb_dim=args.emb_dim)
     noise_scheduler = NoiseScheduler(args.num_timesteps)
@@ -165,7 +165,7 @@ def main(args):
         if epoch % 10 == 0 or epoch == args.num_timesteps - 1:
             sample_np = z.numpy()
             plt.figure(figsize=(6, 6))
-            plt.scatter(sample_np[:, 0], sample_np[:, 1], s=10, alpha=1.0)
+            plt.scatter(sample_np[:, 0], sample_np[:, 1], s=10, alpha=0.6)
             plt.title(f"Sampled Points at Epoch {epoch}")
             plt.xlabel("x")
             plt.ylabel("y")
@@ -190,7 +190,7 @@ if __name__ == "__main__":
     parser.add_argument("--n", type=int, default=100, help="Number of samples")
     parser.add_argument("--emb_dim", type=int, default=128, help="Embedding dimension")
     parser.add_argument("--num_timesteps", type=int, default=50, help="Number of time steps")
-    parser.add_argument("--num_iteration", type=int, default=200, help="Number of iterations")
+    parser.add_argument("--num_iteration", type=int, default=300, help="Number of iterations")
     args = parser.parse_args()
 
     main(args)
