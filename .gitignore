@@ -2,3 +2,6 @@
 vis
 *.jpg
 *.pt
+__pycache__
+*.pyc
+*.pkl
